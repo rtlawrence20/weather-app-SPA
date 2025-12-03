@@ -3,25 +3,32 @@ import { useState } from "react";
 import { Routes, Route, Link } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Forecast from "./pages/Forecast";
+import { fetchWeatherForQuery, fetchWeatherForCoords } from "./services/weatherApi";
 
 export default function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [locationLabel, setLocationLabel] = useState(null);
-  const [weather, setWeather] = useState(null); // placeholder for real data
+  const [weather, setWeather] = useState(null);
 
-  const handleSubmitLocation = (value) => {
+  // derive label from weather now; no separate state needed
+  const locationLabel = weather?.locationLabel ?? null;
+
+  const handleSubmitLocation = async (value) => {
     setQuery(value);
     setError(null);
     setLoading(true);
 
-    // Milestone 1: fake response
-    setTimeout(() => {
+    try {
+      const result = await fetchWeatherForQuery(value);
+      setWeather(result);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to fetch weather data.");
+      setWeather(null);
+    } finally {
       setLoading(false);
-      setLocationLabel(`Results for "${value}"`);
-      setWeather({});
-    }, 500);
+    }
   };
 
   const handleUseMyLocation = () => {
@@ -35,18 +42,25 @@ export default function App() {
     setLoading(true);
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const { latitude, longitude } = position.coords;
-
-        setTimeout(() => {
-          setLoading(false);
-          setLocationLabel(
+        try {
+          const result = await fetchWeatherForCoords(
+            latitude,
+            longitude,
             `Your location (${latitude.toFixed(2)}, ${longitude.toFixed(2)})`
           );
-          setWeather({});
-        }, 500);
+          setWeather(result);
+        } catch (err) {
+          console.error(err);
+          setError(err.message || "Failed to fetch weather data.");
+          setWeather(null);
+        } finally {
+          setLoading(false);
+        }
       },
       (err) => {
+        console.error(err);
         setLoading(false);
         setError(`Unable to get your location (${err.message}).`);
       }
@@ -62,8 +76,7 @@ export default function App() {
               Weather &amp; Road Conditions
             </h1>
             <p className="mt-2 text-sm sm:text-base text-slate-300">
-              Client-side weather dashboard with geolocation and multi-view
-              forecasts.
+              Client-side weather dashboard with geolocation and multi-view forecasts.
             </p>
           </div>
 

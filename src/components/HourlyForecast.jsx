@@ -1,7 +1,9 @@
 /**
  * @typedef {import("../services/weatherApi").WeatherState} WeatherState
+ * @typedef {import("../services/units").UnitSystem} UnitSystem
  */
 
+import { formatTemperature, formatPrecipitation } from "../services/units";
 import { useMemo, useState, useEffect } from "react";
 import {
     WiDaySunny,
@@ -148,10 +150,10 @@ function getWeatherIconComponent(code, timeOfDay) {
 /**
  * HourlyForecast component – shows an animated card that rotates through
  * the next 12 hours of data, with weather icons and time-of-day styling.
- * @param {{ weather: WeatherState|null }} props
+ * @param {{ weather: WeatherState|null, unitSystem: UnitSystem }} props
  * @returns {JSX.Element}
  */
-export default function HourlyForecast({ weather }) {
+export default function HourlyForecast({ weather, unitSystem }) {
     const [currentIndex, setCurrentIndex] = useState(0);
 
     const hours = useMemo(() => {
@@ -227,16 +229,14 @@ export default function HourlyForecast({ weather }) {
                                         </p>
                                         <p className="mt-1 text-sm text-slate-300">
                                             {hour.temperature != null
-                                                ? `${Math.round(hour.temperature)}°C`
+                                                ? formatTemperature(hour.temperature, unitSystem)
                                                 : "Temp unknown"}
                                         </p>
                                     </div>
                                 </div>
-
                                 <div className="space-y-1 text-sm text-slate-300">
-                                    <p>
-                                        Precipitation:{" "}
-                                        {hour.precipitation != null ? `${hour.precipitation} mm` : "–"}
+                                    <p className="mt-1 text-slate-400 text-sm sm:text-xs">
+                                        Precipitation: {formatPrecipitation(hour.precipitation, unitSystem)}
                                     </p>
                                     <p className="text-xs text-slate-400">
                                         Local time &amp; conditions based on forecast data.

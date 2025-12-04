@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Routes, Route, Link } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Forecast from "./pages/Forecast";
-import { fetchWeatherForQuery, fetchWeatherForCoords } from "./services/weatherApi";
+import { fetchWeatherForQuery, fetchWeatherForCoords, reverseGeocodeCoords } from "./services/weatherApi";
 
 /**
  * Main application component
@@ -56,11 +56,16 @@ export default function App() {
             async (position) => {
                 const { latitude, longitude } = position.coords;
                 try {
+                    // Try to turn the raw coords into a nearby city/town label
+                    const reverseLabel = await reverseGeocodeCoords(latitude, longitude);
+
                     const result = await fetchWeatherForCoords(
                         latitude,
                         longitude,
-                        `Your location (${latitude.toFixed(2)}, ${longitude.toFixed(2)})`
+                        // Prefer human-friendly label; fall back to coords if reverse fails
+                        reverseLabel ?? `Your location (${latitude.toFixed(2)}, ${longitude.toFixed(2)})`
                     );
+
                     setWeather(result);
                 } catch (err) {
                     console.error(err);

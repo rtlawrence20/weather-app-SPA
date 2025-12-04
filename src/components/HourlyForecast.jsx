@@ -54,17 +54,38 @@ const DEFAULT_DAY_ICON = WiDaySunny;
 const DEFAULT_NIGHT_ICON = WiNightClear;
 
 /**
- * Format an hour string for display.
+ * Format an hourly time string like "2025-12-04T13:00" into a
+ * human-readable hour label in the location's local timezone.
+ *
  * @param {string} timeStr
+ * @param {string} timeZone IANA timezone, e.g. "America/Denver"
  * @returns {string}
  */
-function formatHour(timeStr) {
-    const date = new Date(timeStr);
-    return date.toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-    });
+function formatHour(timeStr, timeZone) {
+    try {
+        const [datePart, timePart] = timeStr.split("T");
+        const [year, month, day] = datePart.split("-").map(Number);
+        const [hour, minute] = timePart.split(":").map(Number);
+
+        // Construct a Date as if this wall time were in that timezone.
+        // Then format it back out using that timezone so the hour label is correct.
+        const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute));
+
+        return new Intl.DateTimeFormat(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            timeZone,
+        }).format(utcDate);
+    } catch {
+        // Fallback: original behavior
+        const date = new Date(timeStr);
+        return date.toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+        });
+    }
 }
+
 
 /**
  * Return whether the given time is day or night.
@@ -146,6 +167,42 @@ function getWeatherIconComponent(code, timeOfDay) {
     return timeOfDay === "day" ? DEFAULT_DAY_ICON : DEFAULT_NIGHT_ICON;
 }
 
+/**
+ * Given the WeatherState, find the index in hourly that matches "now".
+ * First try weather.current.time; if that fails, fall back to the first
+ * hour >= current browser time. If that also fails, use 0.
+ * @param {WeatherState|null} weather
+ * @returns {number}
+ */
+function getStartIndex(weather) {
+    if (!weather || !Array.isArray(weather.hourly) || weather.hourly.length === 0) {
+        return 0;
+    }
+
+    const hours = weather.hourly;
+
+    // 1) Try to match the API's current_weather time exactly
+    if (weather.current?.time) {
+        const idx = hours.findIndex((h) => h.time === weather.current.time);
+        if (idx !== -1) return idx;
+    }
+
+    // 2) Fallback: find first hour in the future relative to "now"
+    const now = new Date();
+    const nowIsoHour = now.toISOString().slice(0, 13); // "YYYY-MM-DDTHH"
+
+    const idxFuture = hours.findIndex((h) => {
+        // h.time is "YYYY-MM-DDTHH:MM"
+        return h.time.slice(0, 13) >= nowIsoHour;
+    });
+
+    if (idxFuture !== -1) return idxFuture;
+
+    // 3) Last resort: start at 0
+    return 0;
+}
+
+
 
 /**
  * HourlyForecast component – shows an animated card that rotates through
@@ -158,7 +215,10 @@ export default function HourlyForecast({ weather, unitSystem }) {
 
     const hours = useMemo(() => {
         if (!weather || !weather.hourly?.length) return [];
-        return weather.hourly.slice(0, 12);
+        const hours = weather.hourly;
+        const startIndex = getStartIndex(weather);
+        const nextHours = hours.slice(startIndex, startIndex + 12);
+        return nextHours;
     }, [weather]);
 
     // Auto-advance every 6 seconds
@@ -210,7 +270,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
                     {hours.map((hour, index) => {
                         const td = getTimeOfDay(hour.time);
                         const CardIcon = getWeatherIconComponent(hour.weatherCode, td);
-                        const label = formatHour(hour.time);
+                        const label = formatHour(hour.time, weather.timezone);
                         const desc = describeWeatherCodeInline(hour.weatherCode);
 
                         return (
@@ -269,7 +329,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
             {/* Timeline of hours with active one highlighted */}
             <div className="flex flex-wrap gap-1.5 text-xs">
                 {hours.map((hour, index) => {
-                    const label = formatHour(hour.time);
+                    const label = formatHour(hour.time, weather.timezone);
                     const isActive = index === clampedIndex;
 
                     return (

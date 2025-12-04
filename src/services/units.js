@@ -9,14 +9,14 @@
  * @returns {string}
  */
 export function formatTemperature(tempC, unitSystem) {
-  if (tempC == null) return "–";
+    if (tempC == null) return "–";
 
-  if (unitSystem === "metric") {
-    return `${Math.round(tempC)}°C`;
-  }
+    if (unitSystem === "metric") {
+        return `${Math.round(tempC)}°C`;
+    }
 
-  const tempF = tempC * 9 / 5 + 32;
-  return `${Math.round(tempF)}°F`;
+    const tempF = tempC * 9 / 5 + 32;
+    return `${Math.round(tempF)}°F`;
 }
 
 /**
@@ -26,12 +26,12 @@ export function formatTemperature(tempC, unitSystem) {
  * @returns {string}
  */
 export function formatPrecipitation(precipMm, unitSystem) {
-  if (precipMm == null) return "–";
+    if (precipMm == null) return "–";
 
-  if (unitSystem === "metric") {
-    return `${precipMm.toFixed(1)} mm`;
-  }
+    if (unitSystem === "metric") {
+        return `${precipMm.toFixed(1)} mm`;
+    }
 
-  const inches = precipMm / 25.4;
-  return `${inches.toFixed(2)} in`;
+    const inches = precipMm / 25.4;
+    return `${inches.toFixed(2)} in`;
 }

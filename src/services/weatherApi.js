@@ -11,6 +11,7 @@
 
 const GEO_BASE_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const FORECAST_BASE_URL = "https://api.open-meteo.com/v1/forecast";
+const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
 
 /**
  * Fetch JSON data from a URL.
@@ -121,6 +122,72 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
 }
 
 // 3) Convenience: given query string, geocode + fetch forecast
+
+/**
+ * Reverse geocode lat/lon to a human-friendly location label.
+ * Uses the public Nominatim (OpenStreetMap) API.
+ *
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {Promise<string|null>}
+ */
+export async function reverseGeocodeCoords(lat, lon) {
+    const url = new URL(NOMINATIM_REVERSE_URL);
+    url.searchParams.set("lat", lat.toString());
+    url.searchParams.set("lon", lon.toString());
+    url.searchParams.set("format", "json");
+    // zoom ~10 focuses on city/town-level labels
+    url.searchParams.set("zoom", "10");
+    url.searchParams.set("addressdetails", "1");
+
+    try {
+        const data = await fetchJson(url.toString());
+
+        const addr = data.address;
+        if (!addr) return null;
+
+        // Prefer a city-like label first
+        const cityLike =
+            addr.city ||
+            addr.town ||
+            addr.village ||
+            addr.hamlet ||
+            addr.suburb;
+
+        const region = addr.state || addr.region;
+        const countryCode = addr.country_code
+            ? addr.country_code.toUpperCase()
+            : null;
+        const postcode = addr.postcode;
+
+        const parts = [];
+
+        if (cityLike) {
+            parts.push(cityLike);
+        }
+
+        // For US locations, "City, State" reads nicely; elsewhere fall back to
+        // region or country code.
+        if (region && countryCode === "US") {
+            parts.push(region);
+        } else if (region) {
+            parts.push(region);
+        } else if (countryCode) {
+            parts.push(countryCode);
+        }
+
+        if (!parts.length && postcode) {
+            // Last-resort fallback: show a postal code hint
+            return `Near ${postcode}`;
+        }
+
+        return parts.length ? parts.join(", ") : null;
+    } catch (err) {
+        console.error("Reverse geocoding failed:", err);
+        return null;
+    }
+}
+
 
 /**
  * Fetch weather forecast for a location query string.

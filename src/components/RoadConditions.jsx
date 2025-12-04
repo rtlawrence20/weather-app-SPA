@@ -1,19 +1,68 @@
-/** 
- *  @typedef {import("../services/weatherApi").WeatherState} WeatherState 
- *  @typedef {import("../services/units").UnitSystem} UnitSystem
+/**
+ * @typedef {import("../services/weatherApi").WeatherState} WeatherState
+ * @typedef {import("../services/units").UnitSystem} UnitSystem
  */
 
 import { roadConditionInfo, classifyRoadCondition } from "../services/roadConditions";
 import { formatTemperature, formatPrecipitation } from "../services/units";
 
 /**
- * Get the next N hourly entries from a WeatherState.
+ * Given the WeatherState, find the index in hourly that matches "now".
+ * First try weather.current.time; if that fails, fall back to the first
+ * hour >= current browser time; if that also fails, use 0.
  * @param {WeatherState|null} weather
- * @param {number} count
+ * @returns {number}
  */
-function getNextHours(weather, count) {
-    if (!weather || !Array.isArray(weather.hourly)) return [];
-    return weather.hourly.slice(0, count);
+function getStartIndex(weather) {
+    if (!weather || !Array.isArray(weather.hourly) || weather.hourly.length === 0) {
+        return 0;
+    }
+
+    const hours = weather.hourly;
+
+    // 1) Try to match current_weather time exactly
+    if (weather.current?.time) {
+        const idx = hours.findIndex((h) => h.time === weather.current.time);
+        if (idx !== -1) return idx;
+    }
+
+    // 2) Fallback: first hour >= "now" (rough matching)
+    const now = new Date();
+    const nowIsoHour = now.toISOString().slice(0, 13); // "YYYY-MM-DDTHH"
+
+    const idxFuture = hours.findIndex((h) => h.time.slice(0, 13) >= nowIsoHour);
+    if (idxFuture !== -1) return idxFuture;
+
+    // 3) Last resort: 0
+    return 0;
+}
+
+/**
+ * Format an hourly time string into a label in the location's timezone.
+ * @param {string} timeStr
+ * @param {string} timeZone
+ * @returns {string}
+ */
+function formatHour(timeStr, timeZone) {
+    try {
+        const [datePart, timePart] = timeStr.split("T");
+        const [year, month, day] = datePart.split("-").map(Number);
+        const [hour, minute] = timePart.split(":").map(Number);
+
+        const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute));
+
+        return new Intl.DateTimeFormat(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            timeZone,
+        }).format(utcDate);
+    } catch {
+        const date = new Date(timeStr);
+        return date.toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+        });
+    }
 }
 
 /**
@@ -22,9 +71,21 @@ function getNextHours(weather, count) {
  * @returns {JSX.Element}
  */
 export default function RoadConditions({ weather, unitSystem }) {
-    const currentTemp = weather?.current?.temperature ?? null;
-    const currentCode = weather?.current?.weatherCode ?? null;
-    const currentPrecip = weather?.hourly?.[0]?.precipitation ?? null;
+    const startIndex = getStartIndex(weather);
+    const allHours = weather?.hourly ?? [];
+    const upcoming = allHours.slice(startIndex, startIndex + 6);
+
+    // Use current_weather if available, otherwise fall back to first upcoming hour
+    const currentSource =
+        weather?.current && weather.current.time
+            ? upcoming.find((h) => h.time === weather.current.time) ?? upcoming[0]
+            : upcoming[0];
+
+    const currentTemp =
+        weather?.current?.temperature ?? currentSource?.temperature ?? null;
+    const currentCode =
+        weather?.current?.weatherCode ?? currentSource?.weatherCode ?? null;
+    const currentPrecip = currentSource?.precipitation ?? null;
 
     const currentCategory = classifyRoadCondition(
         currentTemp,
@@ -32,8 +93,6 @@ export default function RoadConditions({ weather, unitSystem }) {
         currentCode
     );
     const currentInfo = roadConditionInfo(currentCategory);
-
-    const upcoming = getNextHours(weather, 6);
 
     return (
         <div className="space-y-4">
@@ -70,11 +129,7 @@ export default function RoadConditions({ weather, unitSystem }) {
                             );
                             const info = roadConditionInfo(cat);
 
-                            const t = new Date(hour.time);
-                            const label = t.toLocaleTimeString(undefined, {
-                                hour: "numeric",
-                                minute: "2-digit",
-                            });
+                            const label = formatHour(hour.time, weather.timezone);
 
                             return (
                                 <div
@@ -84,8 +139,8 @@ export default function RoadConditions({ weather, unitSystem }) {
                                     <p className="font-semibold">{label}</p>
                                     <p className="mt-1 text-slate-300">{info.label}</p>
                                     <p className="mt-1 text-slate-400">
-                                        Temp: {formatTemperature(hour.temperature, unitSystem)} · Precip:{" "}
-                                        {formatPrecipitation(hour.precipitation, unitSystem)}
+                                        Temp: {formatTemperature(hour.temperature, unitSystem)} ·
+                                        Precip: {formatPrecipitation(hour.precipitation, unitSystem)}
                                     </p>
                                 </div>
                             );

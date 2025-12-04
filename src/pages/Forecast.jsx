@@ -5,6 +5,7 @@
 
 import { useParams, Navigate, Link } from "react-router-dom";
 import ForecastTabs from "../components/ForecastTabs";
+import RadarMap from "../components/RadarMap";
 
 const VALID_TYPES = ["hourly", "roads", "daily"];
 
@@ -72,6 +73,7 @@ export default function Forecast({ loading, error, weather, locationLabel, unitS
                         </div>
 
                         <ForecastTabs weather={weather} unitSystem={unitSystem} />
+                        <RadarMap coords={weather.coords} locationLabel={locationLabel || undefined} />
                     </>
                 )}
             </section>

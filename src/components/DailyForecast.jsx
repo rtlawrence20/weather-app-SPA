@@ -1,4 +1,8 @@
-/** @typedef {import("../services/weatherApi").WeatherState} WeatherState */
+/**
+ *  @typedef {import("../services/weatherApi").WeatherState} WeatherState 
+ *  @typedef {import("../services/units").UnitSystem} UnitSystem
+*/
+import { formatTemperature } from "../services/units";
 
 /**
  * Format a date string into a more readable format
@@ -16,10 +20,10 @@ function formatDate(dateStr) {
 
 /**
  * DailyForecast component
- * @param {{ weather: WeatherState|null }} props
+ * @param {{ weather: WeatherState|null, unitSystem: UnitSystem }} props
  * @returns {JSX.Element} Daily forecast component
  */
-export default function DailyForecast({ weather }) {
+export default function DailyForecast({ weather, unitSystem }) {
     if (!weather || !weather.daily?.length) {
         return (
             <div className="space-y-2">
@@ -48,8 +52,9 @@ export default function DailyForecast({ weather }) {
                     >
                         <span className="text-slate-100">{formatDate(day.date)}</span>
                         <span className="text-slate-300 text-xs">
-                            {day.tempMax != null ? `${Math.round(day.tempMax)}°` : "–"} /{" "}
-                            {day.tempMin != null ? `${Math.round(day.tempMin)}°` : "–"}
+                            {day.tempMax != null ? formatTemperature(day.tempMax, unitSystem) : "–"}{" "}
+                            /{" "}
+                            {day.tempMin != null ? formatTemperature(day.tempMin, unitSystem) : "–"}
                         </span>
                     </div>
                 ))}

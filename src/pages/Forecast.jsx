@@ -1,5 +1,6 @@
 /**
  * @typedef {import("../services/weatherApi").WeatherState} WeatherState
+ * @typedef {import("../services/units").UnitSystem} UnitSystem
  */
 
 import { useParams, Navigate, Link } from "react-router-dom";
@@ -13,11 +14,12 @@ const VALID_TYPES = ["hourly", "roads", "daily"];
  *   loading: boolean,
  *   error: string|null,
  *   weather: WeatherState|null,
- *   locationLabel: string|null
+ *   locationLabel: string|null,
+ *   unitSystem: UnitSystem
  * }} props
  * @returns {JSX.Element} Forecast page component
  */
-export default function Forecast({ loading, error, weather, locationLabel }) {
+export default function Forecast({ loading, error, weather, locationLabel, unitSystem }) {
     const { type } = useParams();
 
     if (!VALID_TYPES.includes(type)) {
@@ -69,7 +71,7 @@ export default function Forecast({ loading, error, weather, locationLabel }) {
                             </div>
                         </div>
 
-                        <ForecastTabs weather={weather} />
+                        <ForecastTabs weather={weather} unitSystem={unitSystem} />
                     </>
                 )}
             </section>

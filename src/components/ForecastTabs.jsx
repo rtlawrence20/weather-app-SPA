@@ -1,4 +1,7 @@
-/** @typedef {import("../services/weatherApi").WeatherState} WeatherState */
+/** 
+ * @typedef {import("../services/weatherApi").WeatherState} WeatherState 
+ * @typedef {import("../services/units").UnitSystem} UnitSystem
+*/
 
 import { NavLink, useParams } from "react-router-dom";
 import HourlyForecast from "./HourlyForecast";
@@ -13,10 +16,10 @@ const TABS = [
 
 /**
  * ForecastTabs component
- * @param {{ weather: WeatherState|null }} weather
+ * @param {{ weather: WeatherState|null, unitSystem: UnitSystem }} props
  * @returns {JSX.Element} Forecast tabs component
  */
-export default function ForecastTabs({ weather }) {
+export default function ForecastTabs({ weather, unitSystem }) {
     const { type } = useParams();
     const current = TABS.find((t) => t.id === type) ?? TABS[0];
 
@@ -47,9 +50,9 @@ export default function ForecastTabs({ weather }) {
             </div>
 
             <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4 sm:p-5 shadow-inner">
-                {current.id === "hourly" && <HourlyForecast weather={weather} />}
-                {current.id === "roads" && <RoadConditions weather={weather} />}
-                {current.id === "daily" && <DailyForecast weather={weather} />}
+                {current.id === "hourly" && <HourlyForecast weather={weather} unitSystem={unitSystem} />}
+                {current.id === "roads" && <RoadConditions weather={weather} unitSystem={unitSystem} />}
+                {current.id === "daily" && <DailyForecast weather={weather} unitSystem={unitSystem} />}
             </div>
         </div>
     );

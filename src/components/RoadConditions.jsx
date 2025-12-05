@@ -5,6 +5,7 @@
 
 import { roadConditionInfo, classifyRoadCondition } from "../services/roadConditions";
 import { formatTemperature, formatPrecipitation } from "../services/units";
+import { formatHourLabel } from "../services/time";
 
 /**
  * Given the WeatherState, find the index in hourly that matches "now".
@@ -35,34 +36,6 @@ function getStartIndex(weather) {
 
     // 3) Last resort: 0
     return 0;
-}
-
-/**
- * Format an hourly time string into a label in the location's timezone.
- * @param {string} timeStr
- * @param {string} timeZone
- * @returns {string}
- */
-function formatHour(timeStr, timeZone) {
-    try {
-        const [datePart, timePart] = timeStr.split("T");
-        const [year, month, day] = datePart.split("-").map(Number);
-        const [hour, minute] = timePart.split(":").map(Number);
-
-        const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute));
-
-        return new Intl.DateTimeFormat(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-            timeZone,
-        }).format(utcDate);
-    } catch {
-        const date = new Date(timeStr);
-        return date.toLocaleTimeString(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-        });
-    }
 }
 
 /**
@@ -129,7 +102,7 @@ export default function RoadConditions({ weather, unitSystem }) {
                             );
                             const info = roadConditionInfo(cat);
 
-                            const label = formatHour(hour.time, weather.timezone);
+                            const label = formatHourLabel(hour.time, weather.timezone);
 
                             return (
                                 <div

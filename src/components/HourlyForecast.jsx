@@ -17,6 +17,7 @@ import {
     WiFog,
     WiThunderstorm,
 } from "react-icons/wi";
+import { formatHourLabel, getTimeOfDayFromString } from "../services/time";
 
 
 /**
@@ -60,66 +61,6 @@ function windDirectionToCompass(deg) {
     const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
     const index = Math.round((deg % 360) / 45) % 8;
     return dirs[index];
-}
-
-/**
- * Format an hourly time string like "2025-12-04T13:00" into a
- * human-readable hour label in the location's local timezone.
- *
- * @param {string} timeStr
- * @returns {string}
- */
-function formatHour(timeStr) {
-    try {
-        const [, timePart] = timeStr.split("T");
-        if (!timePart) throw new Error("No time part");
-
-        const [hourStr, minuteStr = "00"] = timePart.split(":");
-        let hour = Number(hourStr);
-        const minute = Number(minuteStr);
-
-        if (Number.isNaN(hour) || Number.isNaN(minute)) {
-            throw new Error("Invalid hour/minute");
-        }
-
-        // Convert to 12-hour clock with AM/PM
-        const suffix = hour >= 12 ? "PM" : "AM";
-        let displayHour = hour % 12;
-        if (displayHour === 0) displayHour = 12;
-
-        const displayMinute = minute.toString().padStart(2, "0");
-
-        return `${displayHour}:${displayMinute} ${suffix}`;
-    } catch {
-        // Fallback: original behavior
-        const date = new Date(timeStr);
-        return date.toLocaleTimeString(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-        });
-    }
-}
-
-
-/**
- * Return whether the given time is day or night.
- * Very simple approximation: 6:00–18:00 local = day.
- * @param {string} timeStr
- * @returns {"day" | "night"}
- */
-function getTimeOfDay(timeStr) {
-    try {
-        const [, timePart] = timeStr.split("T");
-        if (!timePart) throw new Error("No time part");
-        const [hourStr] = timePart.split(":");
-        const hour = Number(hourStr);
-        if (Number.isNaN(hour)) throw new Error("Invalid hour");
-        return hour >= 6 && hour < 18 ? "day" : "night";
-    } catch {
-        // Fallback if parsing fails
-        const hours = new Date(timeStr).getHours();
-        return hours >= 6 && hours < 18 ? "day" : "night";
-    }
 }
 
 
@@ -263,7 +204,7 @@ function HourCard({
     Icon,
     description,
 }) {
-    const timeLabel = formatHour(hour.time, timezone);
+    const timeLabel = formatHourLabel(hour.time, timezone);
     const tempLabel = formatTemperature(hour.temperature, unitSystem);
     const feelsLabel =
         hour.apparentTemperature != null
@@ -406,7 +347,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
             <div className="relative overflow-hidden rounded-2xl border border-slate-700 bg-gradient-to-br from-sky-500/20 via-slate-900 to-slate-900 shadow-lg">
                 <div className="flex justify-center gap-3 px-4 py-4 sm:px-6 sm:py-6">
                     {visibleHours.map((hour, index) => {
-                        const td = getTimeOfDay(hour.time);
+                        const td = getTimeOfDayFromString(hour.time);
                         const CardIcon = getWeatherIconComponent(hour.weatherCode, td);
                         const desc = describeWeatherCodeInline(hour.weatherCode);
 
@@ -448,7 +389,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
             {showDetails && (
                 <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 sm:px-6 sm:py-5 space-y-3">
                     {visibleHours.map((hour, index) => {
-                        const timeLabel = formatHour(hour.time, weather.timezone);
+                        const timeLabel = formatHourLabel(hour.time, weather.timezone);
                         const windCompass = windDirectionToCompass(hour.windDirection);
 
                         return (
@@ -529,7 +470,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
                     .map((hour, index) => ({ hour, index }))
                     .filter(({ index }) => index % GROUP_STEP === 0)
                     .map(({ hour, index }) => {
-                        const label = formatHour(hour.time, weather.timezone);
+                        const label = formatHourLabel(hour.time, weather.timezone);
                         const isActive = index === groupIndex;
 
                         return (

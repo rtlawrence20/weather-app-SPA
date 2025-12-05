@@ -48,137 +48,105 @@
  * @property {Array<DailyPoint>} daily
  */
 
+import { fetchJson } from "./http.js";
+import { geocodeLocation, reverseGeocodeCoords } from "./locationApi.js";
+import { fetchAirQuality } from "./airQualityApi.js";
 
-const GEO_BASE_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const FORECAST_BASE_URL = "https://api.open-meteo.com/v1/forecast";
-const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
-const AIR_QUALITY_BASE_URL = "https://air-quality-api.open-meteo.com/v1/air-quality";
+const WEATHER_CACHE_STORAGE_KEY = "weather_cache_v1";
+const WEATHER_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const WEATHER_CACHE_MAX_ENTRIES = 5;
 
-/**
- * Fetch JSON data from a URL.
- * @param {string} url 
- * @returns {Promise<any>}
- */
-async function fetchJson(url) {
-    const res = await fetch(url);
-    if (!res.ok) {
-        throw new Error(`Request failed with status ${res.status}`);
+function loadWeatherCache() {
+    if (typeof window === "undefined" || !window.localStorage) return [];
+    try {
+        const raw = window.localStorage.getItem(WEATHER_CACHE_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        const now = Date.now();
+        return parsed.filter((e) => e && e.expiresAt > now);
+    } catch {
+        return [];
     }
-    return res.json();
 }
 
-/**
- * Classify US AQI value into a simple category string.
- * @param {number|null} aqi
- * @returns {"good"|"moderate"|"unhealthy"|"very_unhealthy"|"hazardous"|"unknown"}
- */
-function classifyUsAqi(aqi) {
-    if (aqi == null || Number.isNaN(aqi)) return "unknown";
-    if (aqi <= 50) return "good";
-    if (aqi <= 100) return "moderate";
-    if (aqi <= 150) return "unhealthy";
-    if (aqi <= 200) return "very_unhealthy";
-    return "hazardous";
+function saveWeatherCache(entries) {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    try {
+        window.localStorage.setItem(
+            WEATHER_CACHE_STORAGE_KEY,
+            JSON.stringify(entries)
+        );
+    } catch { }
 }
 
-/**
- * Fetch hourly air quality data (pm10, pm2_5, dust, uv_index, us_aqi)
- * and return a Map keyed by ISO timestamp.
- *
- * @param {number} lat
- * @param {number} lon
- * @param {string} timezone
- * @returns {Promise<Map<string, {pm10:number|null, pm2_5:number|null, dust:number|null, uvIndex:number|null, usAqi:number|null}>>}
- */
-async function fetchAirQuality(lat, lon, timezone) {
-    const url = new URL(AIR_QUALITY_BASE_URL);
-    url.searchParams.set("latitude", lat);
-    url.searchParams.set("longitude", lon);
-    url.searchParams.set("timezone", timezone || "auto");
-    url.searchParams.set(
-        "hourly",
-        "pm10,pm2_5,dust,uv_index,us_aqi"
-    );
+function makeCoordsCacheKey(lat, lon) {
+    const latStr = Number(lat).toFixed(4);
+    const lonStr = Number(lon).toFixed(4);
+    return `coords:${latStr},${lonStr}`;
+}
 
-    const data = await fetchJson(url.toString());
+function makeQueryCacheKey(query) {
+    return `query:${query.trim().toLowerCase()}`;
+}
 
-    if (!data.hourly || !Array.isArray(data.hourly.time)) {
-        return new Map();
+function getCachedWeather(key) {
+    const entries = loadWeatherCache();
+    const entry = entries.find((e) => e.key === key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+        saveWeatherCache(entries.filter((e) => e.key !== key));
+        return null;
     }
+    return entry.weather;
+}
 
-    const { time, pm10, pm2_5, dust, uv_index, us_aqi } = data.hourly;
-    const byTime = new Map();
+function setCachedWeather(key, weather) {
+    const now = Date.now();
+    const expiresAt = now + WEATHER_CACHE_TTL_MS;
 
-    time.forEach((t, i) => {
-        byTime.set(t, {
-            pm10: pm10?.[i] ?? null,
-            pm2_5: pm2_5?.[i] ?? null,
-            dust: dust?.[i] ?? null,
-            uvIndex: uv_index?.[i] ?? null,
-            usAqi: us_aqi?.[i] ?? null,
-        });
+    let entries = loadWeatherCache().filter((e) => e.key !== key);
+
+    entries.push({
+        key,
+        fetchedAt: weather.fetchedAt || new Date().toISOString(),
+        expiresAt,
+        weather,
     });
 
-    return byTime;
-}
-
-
-// Geocode a city or zip to lat/lon + label
-
-/**
- * Geocode a location query string to latitude, longitude, and a label.
- * @param {string} query
- * @returns {Promise<{lat:number, lon:number, label:string}>}
- */
-export async function geocodeLocation(query) {
-    const url = new URL(GEO_BASE_URL);
-    url.searchParams.set("name", query);
-    url.searchParams.set("count", "1");
-    url.searchParams.set("language", "en");
-    url.searchParams.set("format", "json");
-
-    const data = await fetchJson(url.toString());
-
-    if (!data.results || data.results.length === 0) {
-        throw new Error(`No results found for "${query}".`);
+    // trim to max
+    if (entries.length > WEATHER_CACHE_MAX_ENTRIES) {
+        entries.sort((a, b) => (a.fetchedAt < b.fetchedAt ? -1 : 1));
+        entries = entries.slice(entries.length - WEATHER_CACHE_MAX_ENTRIES);
     }
 
-    const result = data.results[0];
-
-    const labelParts = [
-        result.name,
-        result.admin1,
-        result.country_code,
-    ].filter(Boolean);
-
-    return {
-        lat: result.latitude,
-        lon: result.longitude,
-        label: labelParts.join(", "),
-    };
+    saveWeatherCache(entries);
 }
 
-// Turn geocoding + forecast into WeatherState shape
-/**
- * Fetch weather forecast for given coordinates.
- * @param {number} lat
- * @param {number} lon
- * @param {string} [labelOverride]
- * @returns {Promise<WeatherState>}
- */
-export async function fetchWeatherForCoords(lat, lon, labelOverride) {
-    const url = new URL(FORECAST_BASE_URL);
-    url.searchParams.set("latitude", lat);
-    url.searchParams.set("longitude", lon);
+function safeArrVal(arr, i) {
+    return Array.isArray(arr) ? arr[i] ?? null : null;
+}
 
-    // hourly variables
+export async function fetchWeatherForCoords(lat, lon, labelOverride) {
+    const cacheKey = makeCoordsCacheKey(lat, lon);
+    const cached = getCachedWeather(cacheKey);
+    if (cached) {
+        return {
+            ...cached,
+            locationLabel: labelOverride ?? cached.locationLabel,
+        };
+    }
+
+    const url = new URL(FORECAST_BASE_URL);
+    url.searchParams.set("latitude", String(lat));
+    url.searchParams.set("longitude", String(lon));
     url.searchParams.set(
         "hourly",
         [
             "temperature_2m",
             "apparent_temperature",
             "precipitation",
-            "weathercode",
             "relative_humidity_2m",
             "wind_speed_10m",
             "wind_direction_10m",
@@ -186,10 +154,9 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
             "cloudcover",
             "visibility",
             "uv_index",
+            "weathercode",
         ].join(",")
     );
-
-    // daily with sunrise/sunset/UV
     url.searchParams.set(
         "daily",
         [
@@ -201,16 +168,53 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
             "uv_index_max",
         ].join(",")
     );
-
     url.searchParams.set("current_weather", "true");
     url.searchParams.set("timezone", "auto");
 
     const data = await fetchJson(url.toString());
 
+    const timezone = data.timezone;
+
+    // Build hourly
+    const hourlyData = data.hourly || {};
+    const hourlyTimes = Array.isArray(hourlyData.time) ? hourlyData.time : [];
+
+    const hourly = hourlyTimes.map((time, i) => ({
+        time,
+        temperature: safeArrVal(hourlyData.temperature_2m, i),
+        apparentTemperature: safeArrVal(hourlyData.apparent_temperature, i),
+        precipitation: safeArrVal(hourlyData.precipitation, i),
+        humidity: safeArrVal(hourlyData.relative_humidity_2m, i),
+        windSpeed: safeArrVal(hourlyData.wind_speed_10m, i),
+        windDirection: safeArrVal(hourlyData.wind_direction_10m, i),
+        windGusts: safeArrVal(hourlyData.wind_gusts_10m, i),
+        cloudCover: safeArrVal(hourlyData.cloudcover, i),
+        visibility: safeArrVal(hourlyData.visibility, i),
+        uvIndex: safeArrVal(hourlyData.uv_index, i),
+        weatherCode: safeArrVal(hourlyData.weathercode, i),
+        airQuality: null,
+        airQualitySummary: null,
+    }));
+
+    // Build daily
+    const dailyData = data.daily || {};
+    const dailyTimes = Array.isArray(dailyData.time) ? dailyData.time : [];
+
+    const daily = dailyTimes.map((d, i) => ({
+        date: d,
+        tempMax: safeArrVal(dailyData.temperature_2m_max, i),
+        tempMin: safeArrVal(dailyData.temperature_2m_min, i),
+        weatherCode: safeArrVal(dailyData.weathercode, i),
+        sunrise: safeArrVal(dailyData.sunrise, i),
+        sunset: safeArrVal(dailyData.sunset, i),
+        uvIndexMax: safeArrVal(dailyData.uv_index_max, i),
+    }));
+
     const weather = {
         coords: { lat, lon },
-        locationLabel: labelOverride ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`,
-        timezone: data.timezone,
+        locationLabel:
+            labelOverride ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`,
+        timezone,
         fetchedAt: new Date().toISOString(),
         current: data.current_weather
             ? {
@@ -219,181 +223,50 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
                 weatherCode: data.current_weather.weathercode,
             }
             : null,
-        hourly: [],
-        daily: [],
+        hourly,
+        daily,
     };
 
-    // Hourly arrays -> array of HourlyPoint objects
-    if (data.hourly && Array.isArray(data.hourly.time)) {
-        const {
-            time,
-            temperature_2m,
-            apparent_temperature,
-            precipitation,
-            weathercode,
-            relative_humidity_2m,
-            wind_speed_10m,
-            wind_direction_10m,
-            wind_gusts_10m,
-            cloudcover,
-            visibility,
-            uv_index,
-        } = data.hourly;
-
-        weather.hourly = time.map((t, i) => ({
-            time: t,
-            temperature: temperature_2m?.[i] ?? null,
-            apparentTemperature: apparent_temperature?.[i] ?? null,
-            precipitation: precipitation?.[i] ?? null,
-            weatherCode: weathercode?.[i] ?? null,
-
-            humidity: relative_humidity_2m?.[i] ?? null,
-            windSpeed: wind_speed_10m?.[i] ?? null,
-            windDirection: wind_direction_10m?.[i] ?? null,
-            windGusts: wind_gusts_10m?.[i] ?? null,
-            cloudCover: cloudcover?.[i] ?? null,
-            visibility: visibility?.[i] ?? null,
-            uvIndex: uv_index?.[i] ?? null,
-
-            airQuality: undefined,
-            airQualitySummary: undefined,
-        }));
-    }
-
-    // Daily arrays -> array of DailyPoint objects
-    if (data.daily && Array.isArray(data.daily.time)) {
-        const {
-            time: dailyTime,
-            temperature_2m_max,
-            temperature_2m_min,
-            weathercode,
-            sunrise,
-            sunset,
-            uv_index_max,
-        } = data.daily;
-
-        weather.daily = dailyTime.map((d, i) => ({
-            date: d,
-            tempMax: temperature_2m_max?.[i] ?? null,
-            tempMin: temperature_2m_min?.[i] ?? null,
-            weatherCode: weathercode?.[i] ?? null,
-            sunrise: sunrise?.[i] ?? null,
-            sunset: sunset?.[i] ?? null,
-            uvIndexMax: uv_index_max?.[i] ?? null,
-        }));
-    }
-    
-    // Air Quality (pm10, pm2_5, dust, uv_index, us_aqi)
+    // Merge AQ (best effort)
     try {
-        const aqByTime = await fetchAirQuality(lat, lon, weather.timezone);
+        const aqByTime = await fetchAirQuality(lat, lon, timezone);
+        if (aqByTime && typeof aqByTime === "object") {
+            for (const point of weather.hourly) {
+                const aq = aqByTime[point.time];
+                if (!aq) continue;
 
-        if (aqByTime && aqByTime.size > 0 && Array.isArray(weather.hourly)) {
-            weather.hourly = weather.hourly.map((h) => {
-                const aq = aqByTime.get(h.time);
-                if (!aq) return h;
-
-                const category = classifyUsAqi(aq.usAqi);
-
-                return {
-                    ...h,
-                    airQuality: {
-                        pm10: aq.pm10,
-                        pm2_5: aq.pm2_5,
-                        dust: aq.dust,
-                        uvIndex: aq.uvIndex,
-                        usAqi: aq.usAqi,
-                        category,
-                    },
-                    airQualitySummary:
-                        aq.usAqi != null
-                            ? `${category.replace("_", " ")} (US AQI ${Math.round(aq.usAqi)})`
-                            : "Air quality: unknown",
+                point.airQuality = {
+                    pm10: aq.pm10,
+                    pm2_5: aq.pm2_5,
+                    dust: aq.dust,
+                    uvIndex: aq.uvIndex,
+                    usAqi: aq.usAqi,
+                    category: aq.category,
                 };
-            });
+                point.airQualitySummary = aq.summary;
+            }
         }
     } catch (err) {
-        console.error("Air quality fetch failed:", err);
-        // Fail silently on AQ; core forecast should still work.
+        console.warn("Failed to merge air quality", err);
     }
 
+    setCachedWeather(cacheKey, weather);
     return weather;
 }
 
-// Convenience: given query string, geocode + fetch forecast
-
-/**
- * Reverse geocode lat/lon to a human-friendly location label.
- * Uses the public Nominatim (OpenStreetMap) API.
- *
- * @param {number} lat
- * @param {number} lon
- * @returns {Promise<string|null>}
- */
-export async function reverseGeocodeCoords(lat, lon) {
-    const url = new URL(NOMINATIM_REVERSE_URL);
-    url.searchParams.set("lat", lat.toString());
-    url.searchParams.set("lon", lon.toString());
-    url.searchParams.set("format", "json");
-    // zoom ~10 focuses on city/town-level labels
-    url.searchParams.set("zoom", "10");
-    url.searchParams.set("addressdetails", "1");
-
-    try {
-        const data = await fetchJson(url.toString());
-
-        const addr = data.address;
-        if (!addr) return null;
-
-        // Prefer a city-like label first
-        const cityLike =
-            addr.city ||
-            addr.town ||
-            addr.village ||
-            addr.hamlet ||
-            addr.suburb;
-
-        const region = addr.state || addr.region;
-        const countryCode = addr.country_code
-            ? addr.country_code.toUpperCase()
-            : null;
-        const postcode = addr.postcode;
-
-        const parts = [];
-
-        if (cityLike) {
-            parts.push(cityLike);
-        }
-
-        // For US locations, "City, State" reads nicely; elsewhere fall back to
-        // region or country code.
-        if (region && countryCode === "US") {
-            parts.push(region);
-        } else if (region) {
-            parts.push(region);
-        } else if (countryCode) {
-            parts.push(countryCode);
-        }
-
-        if (!parts.length && postcode) {
-            // Last-resort fallback: show a postal code hint
-            return `Near ${postcode}`;
-        }
-
-        return parts.length ? parts.join(", ") : null;
-    } catch (err) {
-        console.error("Reverse geocoding failed:", err);
-        return null;
-    }
-}
-
-
-/**
- * Fetch weather forecast for a location query string.
- * @param {string} query
- * @returns {Promise<WeatherState>}
- */
 export async function fetchWeatherForQuery(query) {
-    const { lat, lon, label } = await geocodeLocation(query);
+    const normalized = query.trim();
+    const cacheKey = makeQueryCacheKey(normalized);
+
+    const cached = getCachedWeather(cacheKey);
+    if (cached) return cached;
+
+    const { lat, lon, label } = await geocodeLocation(normalized);
     const weather = await fetchWeatherForCoords(lat, lon, label);
+
+    setCachedWeather(cacheKey, weather);
     return weather;
 }
+
+// Optional re-export for convenience
+export { reverseGeocodeCoords };

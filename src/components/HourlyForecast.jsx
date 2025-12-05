@@ -19,10 +19,12 @@ import {
 } from "react-icons/wi";
 import { formatHourLabel, getTimeOfDayFromString } from "../services/time";
 
-
 /**
- * Groups of weather codes mapped to icons.
- * day/night can be different; all = same icon for both.
+ * Routing table from WMO weather codes to icon components.
+ *
+ * - `codes`: list of numeric weather codes this route handles
+ * - `day` / `night`: icon overrides for daytime / nighttime
+ * - `all`: icon to use for both day and night when the same
  */
 const WEATHER_ICON_ROUTES = [
     // Clear / mostly clear
@@ -56,6 +58,12 @@ const DEFAULT_NIGHT_ICON = WiNightClear;
 const VISIBLE_COUNT = 3; // show 3 hours at a time
 const GROUP_STEP = 3; // step size for carousel + timeline
 
+/**
+ * Convert a wind direction in degrees (0–360) to a compass label.
+ *
+ * @param {number|null} deg
+ * @returns {string|null} "N", "NE", "E", … or null if unknown
+ */
 function windDirectionToCompass(deg) {
     if (deg == null || Number.isNaN(deg)) return null;
     const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -63,9 +71,8 @@ function windDirectionToCompass(deg) {
     return dirs[index];
 }
 
-
 /**
- * Get a description string for a WMO weather code.
+ * Get a short human-readable description for a WMO weather code.
  *
  * @param {number|null} code
  * @returns {string}
@@ -109,7 +116,8 @@ function describeWeatherCodeInline(code) {
 
 /**
  * Choose an icon component based on weather code + time of day,
- * using a small routing table instead of if/else chains.
+ * Uses WEATHER_ICON_ROUTES instead of a long if/else chain.
+ *
  * @param {number|null} code
  * @param {"day" | "night"} timeOfDay
  * @returns {React.ComponentType}
@@ -129,12 +137,12 @@ function getWeatherIconComponent(code, timeOfDay) {
     if (timeOfDay === "day" && route.day) return route.day;
     if (timeOfDay === "night" && route.night) return route.night;
 
-    // Fallback if a route is misconfigured
+    // Fallback route
     return timeOfDay === "day" ? DEFAULT_DAY_ICON : DEFAULT_NIGHT_ICON;
 }
 
 /**
- * Given the WeatherState, find the index in hourly that matches "now".
+* Given the WeatherState, find the index in hourly that matches "now".
  * Tries:
  *  1) match weather.current.time by hour prefix
  *  2) find first hour >= "now" in the forecast's timezone
@@ -195,6 +203,20 @@ function getStartIndex(weather) {
     return 0;
 }
 
+/**
+ * Single hourly forecast card used inside the carousel.
+ *
+ * @param {{
+ *   hour: import("../services/weatherApi").HourlyPoint,
+ *   unitSystem: UnitSystem,
+ *   timezone: string,
+ *   formatTemperature: typeof formatTemperature,
+ *   formatPrecipitation: typeof formatPrecipitation,
+ *   Icon: React.ComponentType,
+ *   description: string
+ * }} props
+ * @returns {JSX.Element}
+ */
 function HourCard({
     hour,
     unitSystem,
@@ -259,7 +281,7 @@ function HourCard({
 }
 
 /**
- * HourlyForecast component – shows an animated card group that rotates through
+  * HourlyForecast component – shows an animated card group that rotates through
  * the next 12 hours of data, 3 at a time, with an optional details panel.
  * @param {{ weather: WeatherState|null, unitSystem: UnitSystem }} props
  * @returns {JSX.Element}
@@ -268,6 +290,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [showDetails, setShowDetails] = useState(false);
 
+    // Slice the next 12 hours starting from "now".
     const hours = useMemo(() => {
         if (!weather || !weather.hourly?.length) return [];
         const allHours = weather.hourly;
@@ -284,6 +307,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
         return () => clearInterval(id);
     }, [hours.length, showDetails]);
 
+    // Empty state when there is no hourly data yet
     if (!hours.length) {
         return (
             <div className="space-y-2">
@@ -312,6 +336,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
         setCurrentIndex((prev) => (prev + GROUP_STEP) % hours.length);
     };
 
+    // Ensure currentIndex stays in [0, hours.length)
     const clampedIndex =
         hours.length > 0
             ? ((currentIndex % hours.length) + hours.length) % hours.length
@@ -321,6 +346,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
 
     return (
         <div className="space-y-4">
+            {/* Header + controls */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <h3 className="text-lg font-semibold">Next 12 Hours</h3>
                 <div className="flex items-center gap-3 text-xs text-slate-400">
@@ -373,7 +399,6 @@ export default function HourlyForecast({ weather, unitSystem }) {
                     className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/70 border border-slate-700 p-1 text-slate-100 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     aria-label="Previous hours"
                 >
-                    ‹
                 </button>
                 <button
                     type="button"
@@ -381,7 +406,6 @@ export default function HourlyForecast({ weather, unitSystem }) {
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/70 border border-slate-700 p-1 text-slate-100 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     aria-label="Next hours"
                 >
-                    ›
                 </button>
             </div>
 

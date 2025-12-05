@@ -1,4 +1,9 @@
 /**
+ * Hourly air-quality values attached to a single forecast hour.
+ *
+ * This is a subset of the shape returned by `airQualityApi.fetchAirQuality`.
+ * All numeric values are in the units provided by Open-Meteo.
+ *
  * @typedef {Object} HourlyAirQuality
  * @property {number|null} pm10
  * @property {number|null} pm2_5
@@ -9,8 +14,16 @@
  */
 
 /**
+ * Single hourly forecast point.
+ *
+ * All values are normalized to metric units:
+ * - temperature / apparentTemperature: °C
+ * - precipitation: mm
+ * - windSpeed / windGusts: km/h
+ * - visibility: meters
+ *
  * @typedef {Object} HourlyPoint
- * @property {string} time
+ * @property {string} time ISO-like timestamp "YYYY-MM-DDTHH:MM"
  * @property {number|null} temperature
  * @property {number|null} apparentTemperature
  * @property {number|null} precipitation
@@ -27,8 +40,12 @@
  */
 
 /**
+ * Single daily forecast point.
+ *
+ * Temperatures are in °C, UV index is dimensionless.
+ *
  * @typedef {Object} DailyPoint
- * @property {string} date
+ * @property {string} date ISO date string "YYYY-MM-DD"
  * @property {number|null} tempMax
  * @property {number|null} tempMin
  * @property {number|null} weatherCode
@@ -38,14 +55,29 @@
  */
 
 /**
+ * Weather state returned by this module to be consumed by the UI.
+ *
+ * All numeric values are stored in metric units. The UI is responsible for
+ * converting to imperial via `units.js` when needed.
+ *
  * @typedef {Object} WeatherState
  * @property {{lat:number, lon:number}} coords
- * @property {string} locationLabel
- * @property {string} timezone
- * @property {string} fetchedAt
+ * @property {string} locationLabel Human-readable label for the location.
+ * @property {string} timezone IANA timezone ID from Open-Meteo.
+ * @property {string} fetchedAt ISO timestamp when this state was built.
  * @property {{time:string, temperature:number, weatherCode:number}|null} current
  * @property {Array<HourlyPoint>} hourly
  * @property {Array<DailyPoint>} daily
+ */
+
+/**
+ * LocalStorage cache entry for a single weather result.
+ *
+ * @typedef {Object} WeatherCacheEntry
+ * @property {string} key Cache key ("coords:…" or "query:…").
+ * @property {string} fetchedAt ISO timestamp, used for trimming.
+ * @property {number} expiresAt Epoch ms when this entry should be invalidated.
+ * @property {WeatherState} weather
  */
 
 import { fetchJson } from "./http.js";
@@ -57,6 +89,11 @@ const WEATHER_CACHE_STORAGE_KEY = "weather_cache_v1";
 const WEATHER_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const WEATHER_CACHE_MAX_ENTRIES = 5;
 
+/**
+ * Read the weather cache from localStorage, dropping any expired entries.
+ *
+ * @returns {Array<WeatherCacheEntry>}
+ */
 function loadWeatherCache() {
     if (typeof window === "undefined" || !window.localStorage) return [];
     try {
@@ -65,12 +102,18 @@ function loadWeatherCache() {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) return [];
         const now = Date.now();
+        // Only keep entries that have not expired yet.
         return parsed.filter((e) => e && e.expiresAt > now);
     } catch {
         return [];
     }
 }
 
+/**
+ * Persist the given cache entries to localStorage.
+ *
+ * @param {Array<WeatherCacheEntry>} entries
+ */
 function saveWeatherCache(entries) {
     if (typeof window === "undefined" || !window.localStorage) return;
     try {
@@ -78,34 +121,71 @@ function saveWeatherCache(entries) {
             WEATHER_CACHE_STORAGE_KEY,
             JSON.stringify(entries)
         );
-    } catch { }
+    } catch {
+        // Swallow storage errors; cache is best-effort only.
+    }
 }
 
+/**
+ * Build a cache key for coordinate-based lookups.
+ *
+ * Coordinates are rounded to 4 decimal places to avoid tiny variations
+ * causing separate cache entries.
+ *
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {string}
+ */
 function makeCoordsCacheKey(lat, lon) {
     const latStr = Number(lat).toFixed(4);
     const lonStr = Number(lon).toFixed(4);
     return `coords:${latStr},${lonStr}`;
 }
 
+/**
+ * Build a cache key for query-based lookups.
+ *
+ * Query strings are normalized to lowercase and trimmed.
+ *
+ * @param {string} query
+ * @returns {string}
+ */
 function makeQueryCacheKey(query) {
     return `query:${query.trim().toLowerCase()}`;
 }
 
+/**
+ * Look up a WeatherState from the cache using a cache key.
+ *
+ * Returns null if not found or expired.
+ *
+ * @param {string} key
+ * @returns {WeatherState|null}
+ */
 function getCachedWeather(key) {
     const entries = loadWeatherCache();
     const entry = entries.find((e) => e.key === key);
     if (!entry) return null;
     if (entry.expiresAt <= Date.now()) {
+        // Drop this entry and persist the updated list.
         saveWeatherCache(entries.filter((e) => e.key !== key));
         return null;
     }
     return entry.weather;
 }
 
+/**
+ * Store a WeatherState in the cache under the given key, trimming the cache
+ * to the most recent WEATHER_CACHE_MAX_ENTRIES.
+ *
+ * @param {string} key
+ * @param {WeatherState} weather
+ */
 function setCachedWeather(key, weather) {
     const now = Date.now();
     const expiresAt = now + WEATHER_CACHE_TTL_MS;
 
+    /** @type {Array<WeatherCacheEntry>} */
     let entries = loadWeatherCache().filter((e) => e.key !== key);
 
     entries.push({
@@ -115,7 +195,7 @@ function setCachedWeather(key, weather) {
         weather,
     });
 
-    // trim to max
+    // Trim to the most recent WEATHER_CACHE_MAX_ENTRIES by fetchedAt.
     if (entries.length > WEATHER_CACHE_MAX_ENTRIES) {
         entries.sort((a, b) => (a.fetchedAt < b.fetchedAt ? -1 : 1));
         entries = entries.slice(entries.length - WEATHER_CACHE_MAX_ENTRIES);
@@ -124,10 +204,36 @@ function setCachedWeather(key, weather) {
     saveWeatherCache(entries);
 }
 
+/**
+ * Safely read an array element by index.
+ * Returns null instead of throwing if the array is missing or too short.
+ *
+ * @param {Array<any>|null|undefined} arr
+ * @param {number} i
+ * @returns {any|null}
+ */
 function safeArrVal(arr, i) {
     return Array.isArray(arr) ? arr[i] ?? null : null;
 }
 
+/**
+ * Fetch weather and air-quality data for the given coordinates.
+ *
+ * This is the core function that:
+ * - Calls Open-Meteo forecast API for hourly/daily/current data
+ * - Normalizes it into a WeatherState
+ * - Merges hourly air-quality data from airQualityApi
+ * - Caches the result in localStorage under a coordinate-based key
+ *
+ * If a cached value is found and still valid, it is returned instead of
+ * hitting the network. An optional labelOverride lets callers replace the
+ * cached location label without re-fetching data.
+ *
+ * @param {number} lat Latitude in decimal degrees.
+ * @param {number} lon Longitude in decimal degrees.
+ * @param {string} [labelOverride] Optional override for the location label.
+ * @returns {Promise<WeatherState>}
+ */
 export async function fetchWeatherForCoords(lat, lon, labelOverride) {
     const cacheKey = makeCoordsCacheKey(lat, lon);
     const cached = getCachedWeather(cacheKey);
@@ -175,10 +281,11 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
 
     const timezone = data.timezone;
 
-    // Build hourly
+    // Build hourly points.
     const hourlyData = data.hourly || {};
     const hourlyTimes = Array.isArray(hourlyData.time) ? hourlyData.time : [];
 
+    /** @type {Array<HourlyPoint>} */
     const hourly = hourlyTimes.map((time, i) => ({
         time,
         temperature: safeArrVal(hourlyData.temperature_2m, i),
@@ -196,10 +303,11 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
         airQualitySummary: null,
     }));
 
-    // Build daily
+    // Build daily points.
     const dailyData = data.daily || {};
     const dailyTimes = Array.isArray(dailyData.time) ? dailyData.time : [];
 
+    /** @type {Array<DailyPoint>} */
     const daily = dailyTimes.map((d, i) => ({
         date: d,
         tempMax: safeArrVal(dailyData.temperature_2m_max, i),
@@ -210,6 +318,7 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
         uvIndexMax: safeArrVal(dailyData.uv_index_max, i),
     }));
 
+    /** @type {WeatherState} */
     const weather = {
         coords: { lat, lon },
         locationLabel:
@@ -227,7 +336,7 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
         daily,
     };
 
-    // Merge AQ (best effort)
+    // Merge air quality into hourly points (best effort).
     try {
         const aqByTime = await fetchAirQuality(lat, lon, timezone);
         if (aqByTime && typeof aqByTime === "object") {
@@ -254,6 +363,20 @@ export async function fetchWeatherForCoords(lat, lon, labelOverride) {
     return weather;
 }
 
+/**
+ * Fetch weather by free-form location query (ZIP, "City, ST", etc.).
+ *
+ * This helper:
+ * - Normalizes the raw query string
+ * - Uses geocodeLocation() to get coordinates and label
+ * - Delegates to fetchWeatherForCoords()
+ * - Caches the result under a query-based key
+ *
+ * If a cached result exists, it is returned instead of calling the APIs.
+ *
+ * @param {string} query Free-form location string.
+ * @returns {Promise<WeatherState>}
+ */
 export async function fetchWeatherForQuery(query) {
     const normalized = query.trim();
     const cacheKey = makeQueryCacheKey(normalized);
@@ -268,5 +391,4 @@ export async function fetchWeatherForQuery(query) {
     return weather;
 }
 
-// Optional re-export for convenience
 export { reverseGeocodeCoords };

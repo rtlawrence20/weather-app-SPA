@@ -3,7 +3,10 @@ import { fetchJson } from "./http.js";
 const GEO_BASE_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
 
+/** 5-digit US ZIP code. */
 const ZIP_REGEX = /^\d{5}$/;
+
+/** "City, ST" where ST is a 2-letter US state code. */
 const CITY_STATE_REGEX = /^([^,]+),\s*([A-Za-z]{2})$/;
 
 const US_STATE_NAMES = {
@@ -61,7 +64,42 @@ const US_STATE_NAMES = {
 };
 
 /**
- * Classify a free-form query into zip / city,state / generic.
+ * Parsed form of a free-form location query.
+ *
+ * kind:
+ * - "zip":     5-digit US ZIP ("80202")
+ * - "city_state": "City, ST" ("Denver, CO")
+ * - "generic": everything else
+ *
+ * @typedef {(
+ *   { kind: "zip", zip: string } |
+ *   { kind: "city_state", city: string, stateCode: string } |
+ *   { kind: "generic", raw: string }
+ * )} ParsedLocationQuery
+ */
+
+/**
+ * Result of a successful geocode lookup.
+ *
+ * lat/lon use decimal degrees.
+ * label is a user-facing string, e.g. "Denver, Colorado, US".
+ *
+ * @typedef {Object} GeocodedLocation
+ * @property {number} lat
+ * @property {number} lon
+ * @property {string} label
+ */
+
+/**
+ * Classify a free-form query string into ZIP, "City, ST", or generic.
+ *
+ * Example inputs:
+ * - "80202"      -> { kind: "zip", zip: "80202" }
+ * - "Denver, CO" -> { kind: "city_state", city: "Denver", stateCode: "CO" }
+ * - "Berlin"     -> { kind: "generic", raw: "Berlin" }
+ *
+ * @param {string} query
+ * @returns {ParsedLocationQuery}
  */
 function parseLocationQuery(query) {
     const trimmed = query.trim();
@@ -82,7 +120,16 @@ function parseLocationQuery(query) {
 }
 
 /**
- * Geocode a location query string to lat/lon + label.
+ * Geocode a location query string to latitude/longitude and a display label.
+ *
+ * Uses the Open-Meteo Geocoding API and applies some US-specific behavior:
+ * - ZIP queries are constrained to US and limited to 1 result.
+ * - "City, ST" queries prefer matching the expected state name when possible.
+ *
+ * Throws if no results are found.
+ *
+ * @param {string} query Free-form user input (ZIP, "City, ST", or other).
+ * @returns {Promise<GeocodedLocation>}
  */
 export async function geocodeLocation(query) {
     const parsed = parseLocationQuery(query);
@@ -91,6 +138,7 @@ export async function geocodeLocation(query) {
     url.searchParams.set("language", "en");
     url.searchParams.set("format", "json");
 
+    /** @type {string | null} */
     let desiredStateName = null;
 
     if (parsed.kind === "zip") {
@@ -114,8 +162,11 @@ export async function geocodeLocation(query) {
         throw new Error(`No results found for "${query}".`);
     }
 
+    /** @type {any} */
     let result = data.results[0];
 
+    // For "City, ST" queries, try to pick a result whose admin1 matches the
+    // expected full state name (e.g. "Colorado").
     if (desiredStateName) {
         const desiredLower = desiredStateName.toLowerCase();
         const match = data.results.find(
@@ -132,15 +183,24 @@ export async function geocodeLocation(query) {
         result.country_code,
     ].filter(Boolean);
 
-    return {
+    return /** @type {GeocodedLocation} */ ({
         lat: result.latitude,
         lon: result.longitude,
         label: labelParts.join(", "),
-    };
+    });
 }
 
 /**
- * Reverse-geocode coordinates using Nominatim (optional UI sugar).
+ * Reverse-geocode coordinates into a human-readable label using Nominatim.
+ *
+ * This is optional for geolocation:
+ * failure is logged and returns null rather than throwing.
+ *
+ * Example output: "Denver, Colorado, US".
+ *
+ * @param {number} lat Latitude in decimal degrees.
+ * @param {number} lon Longitude in decimal degrees.
+ * @returns {Promise<string|null>}
  */
 export async function reverseGeocodeCoords(lat, lon) {
     const url = new URL(NOMINATIM_REVERSE_URL);

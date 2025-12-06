@@ -17,6 +17,7 @@ import {
     WiFog,
     WiThunderstorm,
 } from "react-icons/wi";
+import  { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { formatHourLabel, getTimeOfDayFromString } from "../services/time";
 
 /**
@@ -399,6 +400,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
                     className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/70 border border-slate-700 p-1 text-slate-100 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     aria-label="Previous hours"
                 >
+                    <FiChevronLeft size={28} />
                 </button>
                 <button
                     type="button"
@@ -406,6 +408,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/70 border border-slate-700 p-1 text-slate-100 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     aria-label="Next hours"
                 >
+                    <FiChevronRight size={28} />
                 </button>
             </div>
 

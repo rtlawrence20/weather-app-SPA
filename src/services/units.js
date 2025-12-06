@@ -35,3 +35,42 @@ export function formatPrecipitation(precipMm, unitSystem) {
     const inches = precipMm / 25.4;
     return `${inches.toFixed(2)} in`;
 }
+
+
+/**
+ * Convert a wind speed in km/h to a display string.
+ *
+ * @param {number|null|undefined} speedKmh
+ * @param {UnitSystem} unitSystem
+ * @returns {string}
+ */
+export function formatWindSpeed(speedKmh, unitSystem) {
+    if (speedKmh == null || Number.isNaN(speedKmh)) return "—";
+
+    if (unitSystem === "metric") {
+        return `${Math.round(speedKmh)} km/h`;
+    }
+
+    const mph = speedKmh / 1.609344;
+    return `${Math.round(mph)} mph`;
+}
+
+/**
+ * Convert visibility in meters to a display string.
+ *
+ * @param {number|null|undefined} meters
+ * @param {UnitSystem} unitSystem
+ * @returns {string}
+ */
+export function formatVisibility(meters, unitSystem) {
+    if (meters == null || Number.isNaN(meters)) return "—";
+
+    if (unitSystem === "metric") {
+        const km = meters / 1000;
+        return `${km.toFixed(1)} km`;
+    }
+
+    const miles = meters * (6.27137 * 10 ** -4);
+    return `${miles.toFixed(1)} mi`;
+
+}

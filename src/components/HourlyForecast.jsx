@@ -3,7 +3,7 @@
  * @typedef {import("../services/units").UnitSystem} UnitSystem
  */
 
-import { formatTemperature, formatPrecipitation } from "../services/units";
+import { formatTemperature, formatPrecipitation, formatWindSpeed, formatVisibility } from "../services/units";
 import { useMemo, useState, useEffect } from "react";
 import {
     WiDaySunny,
@@ -438,7 +438,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
                                     )}
                                     {hour.windSpeed != null && (
                                         <div>
-                                            Wind: {Math.round(hour.windSpeed)} km/h{" "}
+                                            Wind: {formatWindSpeed(hour.windSpeed, unitSystem)}{" "}
                                             {windCompass && (
                                                 <span className="text-slate-400">
                                                     ({windCompass})
@@ -447,7 +447,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
                                         </div>
                                     )}
                                     {hour.windGusts != null && (
-                                        <div>Gusts: {Math.round(hour.windGusts)} km/h</div>
+                                        <div>Gusts: {formatWindSpeed(hour.windGusts, unitSystem)}</div>
                                     )}
                                     {hour.cloudCover != null && (
                                         <div>
@@ -456,7 +456,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
                                     )}
                                     {hour.visibility != null && (
                                         <div>
-                                            Visibility: {(hour.visibility / 1000).toFixed(1)} km
+                                            Visibility: {formatVisibility(hour.visibility, unitSystem)}
                                         </div>
                                     )}
                                     {hour.uvIndex != null && (

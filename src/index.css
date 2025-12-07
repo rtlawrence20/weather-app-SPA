@@ -5,3 +5,27 @@
         @apply bg-slate-900 text-slate-100 antialiased;
     }
 }
+
+@keyframes slideInFromRight {
+    from {
+        transform: translateX(75px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideInFromLeft {
+    from {
+        transform: translateX(-75px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}

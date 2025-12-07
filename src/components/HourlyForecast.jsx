@@ -17,7 +17,7 @@ import {
     WiFog,
     WiThunderstorm,
 } from "react-icons/wi";
-import  { FiChevronLeft, FiChevronRight } from "react-icons/fi";
+import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { formatHourLabel, getTimeOfDayFromString } from "../services/time";
 
 /**
@@ -290,6 +290,8 @@ function HourCard({
 export default function HourlyForecast({ weather, unitSystem }) {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [showDetails, setShowDetails] = useState(false);
+    const [direction, setDirection] = useState("right"); // left or right
+    const [animKey, setAnimKey] = useState(0);
 
     // Slice the next 12 hours starting from "now".
     const hours = useMemo(() => {
@@ -303,6 +305,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
     useEffect(() => {
         if (!hours.length || showDetails) return;
         const id = setInterval(() => {
+            setDirection("right");
             setCurrentIndex((prev) => (prev + GROUP_STEP) % hours.length);
         }, 6000);
         return () => clearInterval(id);
@@ -327,6 +330,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
     );
 
     const handlePrev = () => {
+        setDirection("left");
         setCurrentIndex((prev) => {
             const next = (prev - GROUP_STEP) % hours.length;
             return next < 0 ? next + hours.length : next;
@@ -334,6 +338,7 @@ export default function HourlyForecast({ weather, unitSystem }) {
     };
 
     const handleNext = () => {
+        setDirection("right");
         setCurrentIndex((prev) => (prev + GROUP_STEP) % hours.length);
     };
 
@@ -344,6 +349,11 @@ export default function HourlyForecast({ weather, unitSystem }) {
             : 0;
 
     const groupIndex = Math.floor(clampedIndex / GROUP_STEP) * GROUP_STEP;
+
+    // whenever groupIndex changes, bump animKey so React remounts the row
+    useEffect(() => {
+        setAnimKey((prev) => prev + 1);
+    }, [groupIndex]);
 
     return (
         <div className="space-y-4">
@@ -372,7 +382,16 @@ export default function HourlyForecast({ weather, unitSystem }) {
 
             {/* 3-card group */}
             <div className="relative overflow-hidden rounded-2xl border border-slate-700 bg-gradient-to-br from-sky-500/20 via-slate-900 to-slate-900 shadow-lg">
-                <div className="flex justify-center gap-3 px-4 py-4 sm:px-6 sm:py-6">
+                <div
+                    key={animKey}
+                    className="flex justify-center gap-3 px-4 py-4 sm:px-6 sm:py-6"
+                    style={{
+                        animation:
+                            direction === "right"
+                                ? "slideInFromRight 0.35s ease-out"
+                                : "slideInFromLeft 0.35s ease-out",
+                    }}
+                >
                     {visibleHours.map((hour, index) => {
                         const td = getTimeOfDayFromString(hour.time);
                         const CardIcon = getWeatherIconComponent(hour.weatherCode, td);
